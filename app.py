@@ -17,8 +17,12 @@ st.title("CSV Data Colormap Viewer 🔬")
 
 # --- Data Loading ---
 @st.cache_data
-def load_data():
-    file_id = "1LkcWRR0pXQyf711MY31QLnkSovsi5j4P"
+def load_data(polarization):
+    if polarization == "TE":
+        file_id = "1LkcWRR0pXQyf711MY31QLnkSovsi5j4P"  # Your existing TE file
+    else:  # TM
+        file_id = "YOUR_TM_FILE_ID_HERE"  # You'll need to get this for your TM file
+    
     download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
     try:
         df = pd.read_csv(download_url)
@@ -28,11 +32,25 @@ def load_data():
         
         return df
     except Exception as e:
-        st.error(f"Error loading data from Google Drive: {e}")
+        st.error(f"Error loading {polarization} data from Google Drive: {e}")
         st.error("Please ensure the file is shared with 'Anyone with the link'.")
         return None
 
-df = load_data()
+# Alternative: Load from local files in your repository
+@st.cache_data
+def load_local_data(polarization):
+    if polarization == "TE":
+        filename = "pvk_0_T_files_0_points_1994.csv"  # Your TE file
+    else:  # TM
+        filename = "pvk_0_TM_desp_0_points_1994.csv"  # Your TM file
+    
+    try:
+        df = pd.read_csv(filename)
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Error loading {polarization} data from {filename}: {e}")
+        return None
 
 if not PLOTLY_AVAILABLE:
     st.warning("""
@@ -40,12 +58,17 @@ if not PLOTLY_AVAILABLE:
     
     Please add `plotly>=5.10.0` to your `requirements.txt` file and redeploy.
     """)
-    
-    if df is not None:
-        st.subheader("Data Preview (Plotly not available)")
-        st.dataframe(df.head())
-    
     st.stop()
+
+# --- Polarization Selection ---
+st.sidebar.header("Polarization Selection")
+polarization = st.sidebar.radio(
+    "Select Polarization:",
+    ('TE', 'TM')
+)
+
+# Load data based on selected polarization
+df = load_local_data(polarization)
 
 if df is not None:
     # --- User Controls (Sidebar) ---
@@ -135,7 +158,7 @@ if df is not None:
             shared_yaxes=True,
             subplot_titles=(f'Horizontal Cross-Section at h_fib = {selected_height:.3f}', 
                           '', 
-                          'Heatmap', 
+                          f'{polarization} Polarization Heatmap', 
                           f'Vertical Cross-Section at λ = {selected_wavelength:.3f}')
         )
 
@@ -230,7 +253,7 @@ if df is not None:
 
         # Update layout
         fig.update_layout(
-            title=f'{scale_choice} Colormap of {selected_display_name}',
+            title=f'{polarization} Polarization - {scale_choice} Colormap of {selected_display_name}',
             height=700,
             showlegend=False,
             # Heatmap axes
@@ -274,6 +297,7 @@ if df is not None:
     except Exception as e:
         st.error(f"An error occurred while creating the plot: {e}")
         st.error(f"Please check if the columns 'h_fib', 'lda0', and '{selected_column}' exist in the CSV.")
+        st.write("Available columns:", df.columns.tolist())
 
 else:
-    st.warning("No data loaded. Please check the data source.")
+    st.warning(f"No {polarization} data loaded. Please check the data source.")
