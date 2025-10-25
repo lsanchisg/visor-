@@ -40,7 +40,7 @@ def load_data(polarization):
 @st.cache_data
 def load_local_data(polarization):
     if polarization == "TE":
-        filename = "pvk_0_T_files_0_points_1994.csv"  # Your TE file
+        filename = "pvk_0_TE_files_0_points_1994.csv"  # Your TE file
     else:  # TM
         filename = "pvk_0_TM_desp_0_points_1994.csv"  # Your TM file
     
