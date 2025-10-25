@@ -1,8 +1,15 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import numpy as np
-from plotly.subplots import make_subplots
+
+# Try to import Plotly, with fallback error handling
+try:
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.error("⚠️ Plotly is not installed. Please add 'plotly>=5.10.0' to your requirements.txt file")
 
 # Set the title of the web app
 st.set_page_config(layout="wide")
@@ -27,6 +34,18 @@ def load_data():
 
 df = load_data()
 
+if not PLOTLY_AVAILABLE:
+    st.warning("""
+    **Plotly is required for visualization.** 
+    
+    Please add `plotly>=5.10.0` to your `requirements.txt` file and redeploy.
+    """)
+    
+    if df is not None:
+        st.subheader("Data Preview (Plotly not available)")
+        st.dataframe(df.head())
+    
+    st.stop()
 
 if df is not None:
     # --- User Controls (Sidebar) ---
@@ -255,3 +274,6 @@ if df is not None:
     except Exception as e:
         st.error(f"An error occurred while creating the plot: {e}")
         st.error(f"Please check if the columns 'h_fib', 'lda0', and '{selected_column}' exist in the CSV.")
+
+else:
+    st.warning("No data loaded. Please check the data source.")
