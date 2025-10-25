@@ -13,36 +13,15 @@ except ImportError:
 
 # Set the title of the web app
 st.set_page_config(layout="wide")
-st.title("CSV Data Colormap Viewer 🔬")
+st.title("Optical Data Colormap Viewer 🔬")
 
 # --- Data Loading ---
 @st.cache_data
 def load_data(polarization):
     if polarization == "TE":
-        file_id = "1LkcWRR0pXQyf711MY31QLnkSovsi5j4P"  # Your existing TE file
+        filename = "pvk_0_TE_desp_0_points_1994.csv"
     else:  # TM
-        file_id = "YOUR_TM_FILE_ID_HERE"  # You'll need to get this for your TM file
-    
-    download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-    try:
-        df = pd.read_csv(download_url)
-        
-        # Clean all column names from extra spaces
-        df.columns = df.columns.str.strip()
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading {polarization} data from Google Drive: {e}")
-        st.error("Please ensure the file is shared with 'Anyone with the link'.")
-        return None
-
-# Alternative: Load from local files in your repository
-@st.cache_data
-def load_local_data(polarization):
-    if polarization == "TE":
-        filename = "pvk_0_TE_files_0_points_1994.csv"  # Your TE file
-    else:  # TM
-        filename = "pvk_0_TM_desp_0_points_1994.csv"  # Your TM file
+        filename = "pvk_0_TM_desp_0_points_1994.csv"
     
     try:
         df = pd.read_csv(filename)
@@ -68,7 +47,7 @@ polarization = st.sidebar.radio(
 )
 
 # Load data based on selected polarization
-df = load_local_data(polarization)
+df = load_data(polarization)
 
 if df is not None:
     # --- User Controls (Sidebar) ---
