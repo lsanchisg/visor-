@@ -19,12 +19,12 @@ st.title("Optical Data Colormap Viewer 🔬")
 @st.cache_data
 def load_data(polarization):
     if polarization == "TE":
-        filename = "pvk_0_TE_desp_0_points_1994.csv"
+        filename = "pvk_0_TE_desp_0_interval_4_sim.txt"
     else:  # TM
-        filename = "pvk_0_TM_desp_0_points_1994.csv"
+        filename = "pvk_0_TM_desp_0_interval_4_sim.txt"
     
     try:
-        df = pd.read_csv(filename)
+        df = pd.read_txt(filename)
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
@@ -279,4 +279,5 @@ if df is not None:
         st.write("Available columns:", df.columns.tolist())
 
 else:
+
     st.warning(f"No {polarization} data loaded. Please check the data source.")
