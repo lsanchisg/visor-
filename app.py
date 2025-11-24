@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 
 # Try to import Plotly, with fallback error handling
 try:
@@ -12,31 +13,58 @@ except ImportError:
     st.error("⚠️ Plotly is not installed. Please add 'plotly>=5.10.0' to your requirements.txt file")
 
 # Set the title of the web app
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Optical Data Viewer")
 st.title("Optical Data Colormap Viewer 🔬")
 
 # --- Data Loading ---
 @st.cache_data
 def load_data(polarization):
+    # Define filenames based on polarization
     if polarization == "TE":
         filename = "pvk_0_TE_desp_0_interval_4_sim.txt"
     else:  # TM
         filename = "pvk_0_TM_desp_0_interval_4_sim.txt"
     
+    # Check if file exists to prevent crashing
+    if not os.path.exists(filename):
+        st.error(f"File not found: `{filename}`. Please ensure the .txt file is in the same folder.")
+        return None
+
     try:
-        df = pd.read_txt(filename)
-        df.columns = df.columns.str.strip()
+        # We manually list the 6 columns found in your file
+        # The 3rd one is 'lambda0' which you asked to ignore
+        column_names = [
+            'h_fib', 
+            'lda0', 
+            'lambda0_duplicate', # This is the duplicate column we will drop
+            'Reflectance_port_1', 
+            'Transmittance_port_2', 
+            'Absorvance'
+        ]
+
+        # --- KEY FIX FOR .TXT FILES ---
+        # pd.read_csv works for .txt files too!
+        # sep=r'\s+' tells it to separate columns by SPACES, not commas.
+        # comment='%' tells it to ignore the text headers at the top of your file.
+        df = pd.read_csv(
+            filename, 
+            sep=r'\s+',          # Handle space-separated values
+            comment='%',         # Skip lines starting with %
+            header=None,         # Do not try to read the first line as header
+            names=column_names   # Use our manual column names
+        )
+
+        # Drop the column you asked to ignore
+        df = df.drop(columns=['lambda0_duplicate'])
+
         return df
+
     except Exception as e:
         st.error(f"Error loading {polarization} data from {filename}: {e}")
         return None
 
 if not PLOTLY_AVAILABLE:
-    st.warning("""
-    **Plotly is required for visualization.** 
-    
-    Please add `plotly>=5.10.0` to your `requirements.txt` file and redeploy.
-    """)
+    st.warning("Plotly is required. Please add `plotly>=5.10.0` to requirements.txt")
     st.stop()
 
 # --- Polarization Selection ---
@@ -46,68 +74,72 @@ polarization = st.sidebar.radio(
     ('TE', 'TM')
 )
 
-# Load data based on selected polarization
+# Load data
 df = load_data(polarization)
 
 if df is not None:
     # --- User Controls (Sidebar) ---
     st.sidebar.header("Plot Controls")
 
-    # Create a mapping between display names and actual column names
-    column_mapping = {
-        'Reflectance port 1': 'Reflectance_port_1',
-        'Transmittance port 2': 'Transmittance_port_2', 
-        'Absorvance': 'Absorvance'
+    # Map readable names to your internal column names
+    display_options = {
+        'Reflectance (Port 1)': 'Reflectance_port_1',
+        'Transmittance (Port 2)': 'Transmittance_port_2', 
+        'Absorbance': 'Absorvance'
     }
     
-    # Use display names in selectbox
     selected_display_name = st.sidebar.selectbox(
         "Select data to plot:",
-        list(column_mapping.keys())
+        list(display_options.keys())
     )
     
-    # Get the actual column name for processing
-    selected_column = column_mapping[selected_display_name]
+    selected_column = display_options[selected_display_name]
 
     scale_choice = st.sidebar.radio(
         "Select color scale:",
         ('Normal Scale', 'Log Scale')
     )
 
-    # --- Data Pivoting for Heatmap ---
+    # --- Data Processing ---
     try:
-        # Use the exact column names from your CSV
+        # Rounding ensures floating point numbers match up perfectly for the heatmap grid
+        df['h_fib'] = df['h_fib'].round(5)
+        df['lda0'] = df['lda0'].round(5)
+
+        # Create the matrix (pivot table)
         df_pivot = df.pivot(
             index='h_fib', 
             columns='lda0', 
             values=selected_column
         )
         
+        # Sort to ensure axes are in order
+        df_pivot.sort_index(axis=0, inplace=True) 
+        df_pivot.sort_index(axis=1, inplace=True)
+        
         z_data = df_pivot.values
         color_label = selected_display_name
         zmin_val = None
         zmax_val = None
 
-        # --- Handle Log vs. Normal Scale ---
+        # --- Log Scale Logic ---
         if scale_choice == 'Log Scale':
-            z_data_safe = np.where(z_data <= 0, 1e-8, z_data)
+            z_data_safe = np.where(z_data <= 0, 1e-12, z_data) # Prevent log(0) error
             z_data = np.log10(z_data_safe)
             color_label = f"Log10({selected_display_name})"
-            zmin_val = -7
-            zmax_val = -1
+            zmin_val = -5 # Adjust these bounds if image is too dark/bright
+            zmax_val = 0
 
-        # Create sliders for cross-section positions
+        # --- Sliders ---
         st.sidebar.header("Cross-Section Controls")
         
-        # Get min and max values for sliders
         wavelength_min = float(df_pivot.columns.min())
         wavelength_max = float(df_pivot.columns.max())
         height_min = float(df_pivot.index.min())
         height_max = float(df_pivot.index.max())
         
-        # Create sliders
         selected_wavelength = st.sidebar.slider(
-            "Select Wavelength for Vertical Cross-Section",
+            "Select Wavelength (nm)",
             min_value=wavelength_min,
             max_value=wavelength_max,
             value=(wavelength_min + wavelength_max) / 2,
@@ -115,18 +147,21 @@ if df is not None:
         )
         
         selected_height = st.sidebar.slider(
-            "Select Fiber Height for Horizontal Cross-Section",
+            "Select Fiber Height (nm)",
             min_value=height_min,
             max_value=height_max,
             value=(height_min + height_max) / 2,
             step=(height_max - height_min) / 100
         )
 
-        # Find closest indices for selected values
+        # Find nearest real data points
         wavelength_idx = np.abs(df_pivot.columns - selected_wavelength).argmin()
         height_idx = np.abs(df_pivot.index - selected_height).argmin()
+        
+        actual_wavelength = df_pivot.columns[wavelength_idx]
+        actual_height = df_pivot.index[height_idx]
 
-        # Create figure with subplots
+        # --- Plotting ---
         fig = make_subplots(
             rows=2, cols=2,
             column_widths=[0.8, 0.2],
@@ -135,149 +170,74 @@ if df is not None:
             horizontal_spacing=0.05,
             shared_xaxes=True,
             shared_yaxes=True,
-            subplot_titles=(f'Horizontal Cross-Section at h_fib = {selected_height:.3f}', 
-                          '', 
-                          f'{polarization} Polarization Heatmap', 
-                          f'Vertical Cross-Section at λ = {selected_wavelength:.3f}')
+            subplot_titles=(
+                f'Horizontal Cut (h={actual_height:.1f}nm)', 
+                '', 
+                f'{polarization} Map: {color_label}', 
+                f'Vertical Cut (λ={actual_wavelength:.1f}nm)'
+            )
         )
 
-        # Add heatmap (main plot)
+        # 1. Heatmap
         heatmap = go.Heatmap(
             z=z_data,
             x=df_pivot.columns,
             y=df_pivot.index,
-            colorscale='Plasma',
-            colorbar=dict(
-                title=color_label,
-                len=0.75,
-                y=0.15,
-                yanchor='bottom'
-            ),
+            colorscale='Jet',
+            colorbar=dict(title=color_label, len=0.75, y=0.15, yanchor='bottom'),
             zmin=zmin_val,
             zmax=zmax_val,
-            hoverinfo="x+y+z",
-            name="",
-            hovertemplate="<br>".join([
-                "Wavelength: %{x:.3f} nm",
-                "Fiber Height: %{y:.3f} nm",
-                f"{selected_display_name}: %{{z:.6f}}",
-                "<extra></extra>"
-            ])
+            hovertemplate="Wavelength: %{x} nm<br>Height: %{y} nm<br>Value: %{z:.4e}<extra></extra>"
         )
         fig.add_trace(heatmap, row=2, col=1)
 
-        # Add horizontal line to heatmap (at selected height)
-        horizontal_line_heatmap = go.Scatter(
-            x=[df_pivot.columns.min(), df_pivot.columns.max()],
-            y=[selected_height, selected_height],
-            mode='lines',
-            line=dict(color='red', width=3, dash='dash'),
-            name=f'h_fib = {selected_height:.3f}',
-            showlegend=False
-        )
-        fig.add_trace(horizontal_line_heatmap, row=2, col=1)
+        # Crosshair lines on Heatmap
+        fig.add_hline(y=actual_height, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
+        fig.add_vline(x=actual_wavelength, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
 
-        # Add vertical line to heatmap (at selected wavelength)
-        vertical_line_heatmap = go.Scatter(
-            x=[selected_wavelength, selected_wavelength],
-            y=[df_pivot.index.min(), df_pivot.index.max()],
-            mode='lines',
-            line=dict(color='blue', width=3, dash='dash'),
-            name=f'λ = {selected_wavelength:.3f}',
-            showlegend=False
-        )
-        fig.add_trace(vertical_line_heatmap, row=2, col=1)
-
-        # Add horizontal cross-section (top plot)
+        # 2. Top Plot (Horizontal Cut)
         x_cross_section = z_data[height_idx, :]
-        horizontal_line = go.Scatter(
-            x=df_pivot.columns,
-            y=x_cross_section,
-            mode='lines',
-            line=dict(color='red', width=2),
-            showlegend=False
-        )
-        fig.add_trace(horizontal_line, row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=df_pivot.columns, y=x_cross_section,
+            mode='lines', line=dict(color='red', width=2), name="H-Cut"
+        ), row=1, col=1)
+        
+        # Dot on Top Plot
+        fig.add_trace(go.Scatter(
+            x=[actual_wavelength], y=[x_cross_section[wavelength_idx]],
+            mode='markers', marker=dict(color='blue', size=8), showlegend=False
+        ), row=1, col=1)
 
-        # Add vertical marker to horizontal cross-section
-        horizontal_marker = go.Scatter(
-            x=[selected_wavelength],
-            y=[x_cross_section[wavelength_idx]],
-            mode='markers',
-            marker=dict(color='blue', size=8, symbol='circle'),
-            showlegend=False
-        )
-        fig.add_trace(horizontal_marker, row=1, col=1)
-
-        # Add vertical cross-section (right plot)
+        # 3. Right Plot (Vertical Cut)
         y_cross_section = z_data[:, wavelength_idx]
-        vertical_line = go.Scatter(
-            x=y_cross_section,
-            y=df_pivot.index,
-            mode='lines',
-            line=dict(color='blue', width=2),
-            showlegend=False
-        )
-        fig.add_trace(vertical_line, row=2, col=2)
+        fig.add_trace(go.Scatter(
+            x=y_cross_section, y=df_pivot.index,
+            mode='lines', line=dict(color='blue', width=2), name="V-Cut"
+        ), row=2, col=2)
 
-        # Add horizontal marker to vertical cross-section
-        vertical_marker = go.Scatter(
-            x=[y_cross_section[height_idx]],
-            y=[selected_height],
-            mode='markers',
-            marker=dict(color='red', size=8, symbol='circle'),
-            showlegend=False
-        )
-        fig.add_trace(vertical_marker, row=2, col=2)
+        # Dot on Right Plot
+        fig.add_trace(go.Scatter(
+            x=[y_cross_section[height_idx]], y=[actual_height],
+            mode='markers', marker=dict(color='red', size=8), showlegend=False
+        ), row=2, col=2)
 
-        # Update layout
+        # Final Layout
         fig.update_layout(
-            title=f'{polarization} Polarization - {scale_choice} Colormap of {selected_display_name}',
             height=700,
             showlegend=False,
-            # Heatmap axes
-            xaxis2=dict(
-                title='Wavelength (nm)',
-                constrain='domain'
-            ),
-            yaxis2=dict(
-                title='Fiber Height (nm)',
-                constrain='domain'
-            ),
-            # Top plot (horizontal cross-section)
-            xaxis1=dict(
-                showticklabels=True,
-                title='Wavelength (nm)'
-            ),
-            yaxis1=dict(
-                title=selected_display_name
-            ),
-            # Right plot (vertical cross-section)
-            xaxis3=dict(
-                title=selected_display_name
-            ),
-            yaxis3=dict(
-                showticklabels=True,
-                title='Fiber Height (nm)'
-            )
+            template="plotly_white",
+            xaxis2=dict(title='Wavelength (nm)'),
+            yaxis2=dict(title='Fiber Height (nm)'),
+            xaxis1=dict(showticklabels=True), # Top axis
+            yaxis3=dict(showticklabels=True)  # Right axis
         )
 
-        # Display the plot
         st.plotly_chart(fig, use_container_width=True)
 
-        # Add explanation
-        st.sidebar.info("""
-        **Guide:**
-        - **Red dashed line**: Horizontal cross-section position
-        - **Blue dashed line**: Vertical cross-section position
-        - Adjust sliders to move the cross-section lines
-        """)
-
     except Exception as e:
-        st.error(f"An error occurred while creating the plot: {e}")
-        st.error(f"Please check if the columns 'h_fib', 'lda0', and '{selected_column}' exist in the CSV.")
-        st.write("Available columns:", df.columns.tolist())
+        st.error(f"An error occurred while plotting: {e}")
+        st.write("First 5 rows of loaded data for debugging:")
+        st.dataframe(df.head())
 
 else:
-
-    st.warning(f"No {polarization} data loaded. Please check the data source.")
+    st.info("Please ensure the file 'pvk_0_TE_desp_0_interval_4_sim.txt' is in the same folder.")
