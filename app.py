@@ -16,23 +16,24 @@ except ImportError:
 st.set_page_config(layout="wide", page_title="Optical Data Viewer")
 st.title("Optical Data Colormap Viewer 🔬")
 
+# --- Configuration: Available Data Parameters ---
+# You can add more values to these lists as you generate new data files
+thickness_options = [0, 15]  # Corresponds to value after 'pvk_'
+separation_options = [0]     # Corresponds to value after 'desp_'
+
 # --- Data Loading ---
 @st.cache_data
-def load_data(polarization):
-    # Define filenames based on polarization
-    if polarization == "TE":
-        filename = "pvk_0_TE_desp_0_interval_4_sim.txt"
-    else:  # TM
-        filename = "pvk_0_TM_desp_0_interval_4_sim.txt"
+def load_data(thickness, polarization, separation):
+    # Dynamic filename construction
+    # Pattern: pvk_{thickness}_{polarization}_desp_{separation}_interval_4_sim.txt
+    filename = f"pvk_{thickness}_{polarization}_desp_{separation}_interval_4_sim.txt"
     
     # Check if file exists to prevent crashing
     if not os.path.exists(filename):
-        st.error(f"File not found: `{filename}`. Please ensure the .txt file is in the same folder.")
-        return None
+        return None, filename
 
     try:
         # We manually list the 6 columns found in your file
-        # The 3rd one is 'lambda0' which you asked to ignore
         column_names = [
             'h_fib', 
             'lda0', 
@@ -42,10 +43,7 @@ def load_data(polarization):
             'Absorvance'
         ]
 
-        # --- KEY FIX FOR .TXT FILES ---
-        # pd.read_csv works for .txt files too!
-        # sep=r'\s+' tells it to separate columns by SPACES, not commas.
-        # comment='%' tells it to ignore the text headers at the top of your file.
+        # Load the text file
         df = pd.read_csv(
             filename, 
             sep=r'\s+',          # Handle space-separated values
@@ -57,28 +55,43 @@ def load_data(polarization):
         # Drop the column you asked to ignore
         df = df.drop(columns=['lambda0_duplicate'])
 
-        return df
+        return df, filename
 
     except Exception as e:
-        st.error(f"Error loading {polarization} data from {filename}: {e}")
-        return None
+        st.error(f"Error reading file {filename}: {e}")
+        return None, filename
 
 if not PLOTLY_AVAILABLE:
     st.warning("Plotly is required. Please add `plotly>=5.10.0` to requirements.txt")
     st.stop()
 
-# --- Polarization Selection ---
-st.sidebar.header("Polarization Selection")
-polarization = st.sidebar.radio(
-    "Select Polarization:",
+# --- Sidebar: Data Selection ---
+st.sidebar.header("Data Configuration")
+
+# 1. Thickness Selection
+selected_thickness = st.sidebar.selectbox(
+    "Thickness of perovskite layer (nm):",
+    thickness_options
+)
+
+# 2. Polarization Selection
+selected_polarization = st.sidebar.radio(
+    "Polarization:",
     ('TE', 'TM')
 )
 
-# Load data
-df = load_data(polarization)
+# 3. Separation Selection
+selected_separation = st.sidebar.selectbox(
+    "Gaussians separation (nm):",
+    separation_options
+)
+
+# Load data based on ALL selected parameters
+df, current_filename = load_data(selected_thickness, selected_polarization, selected_separation)
 
 if df is not None:
-    # --- User Controls (Sidebar) ---
+    # --- User Controls (Plotting) ---
+    st.sidebar.markdown("---")
     st.sidebar.header("Plot Controls")
 
     # Map readable names to your internal column names
@@ -127,7 +140,7 @@ if df is not None:
             z_data_safe = np.where(z_data <= 0, 1e-12, z_data) # Prevent log(0) error
             z_data = np.log10(z_data_safe)
             color_label = f"Log10({selected_display_name})"
-            zmin_val = -5 # Adjust these bounds if image is too dark/bright
+            zmin_val = -5 
             zmax_val = 0
 
         # --- Sliders ---
@@ -172,8 +185,8 @@ if df is not None:
             shared_yaxes=True,
             subplot_titles=(
                 f'Horizontal Cut (h={actual_height:.1f}nm)', 
-                '', 
-                f'{polarization} Map: {color_label}', 
+                f'File: {current_filename}', 
+                f'{selected_polarization} Map (Thick={selected_thickness}nm)', 
                 f'Vertical Cut (λ={actual_wavelength:.1f}nm)'
             )
         )
@@ -228,8 +241,8 @@ if df is not None:
             template="plotly_white",
             xaxis2=dict(title='Wavelength (nm)'),
             yaxis2=dict(title='Fiber Height (nm)'),
-            xaxis1=dict(showticklabels=True), # Top axis
-            yaxis3=dict(showticklabels=True)  # Right axis
+            xaxis1=dict(showticklabels=True), 
+            yaxis3=dict(showticklabels=True)  
         )
 
         st.plotly_chart(fig, use_container_width=True)
@@ -240,4 +253,13 @@ if df is not None:
         st.dataframe(df.head())
 
 else:
-    st.info("Please ensure the file 'pvk_0_TE_desp_0_interval_4_sim.txt' is in the same folder.")
+    st.warning(f"File not found: `{current_filename}`")
+    st.info(f"""
+    **Please ensure the following file is in your folder:**
+    - {current_filename}
+    
+    **Current Selection:**
+    - Thickness: {selected_thickness} nm
+    - Polarization: {selected_polarization}
+    - Separation: {selected_separation} nm
+    """)
