@@ -1,19 +1,22 @@
-
-# --- DEBUG: Show me all files in the current folder ---
-import os
-
-
-
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 
+# --- 1. Page Configuration (MUST be the first st command) ---
+st.set_page_config(layout="wide", page_title="Cluster Optical Viewer")
+
+# --- 2. Debugging: Verify File Location ---
 st.write("📂 **Files found in this folder:**")
-st.write(os.listdir('.')) # This prints the list of files to the screen
+try:
+    # Print files to confirm the code can see them
+    files = os.listdir('.')
+    st.write(files)
+except Exception as e:
+    st.error(f"Error checking files: {e}")
 st.write("---")
 
-
-# Try to import Plotly
+# --- 3. Imports and Setup for Plotly ---
 try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -22,19 +25,17 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     st.error("⚠️ Plotly is not installed. Please add 'plotly>=5.10.0' to your requirements.txt file")
 
-# Set page config
-st.set_page_config(layout="wide", page_title="Cluster Optical Viewer")
 st.title("Optical Data Colormap Viewer (Cluster) 🔬")
 
-# --- Configuration: Available Data Parameters ---
+# --- 4. Configuration: Available Data Parameters ---
 # Update these lists based on your actual data files
 thickness_options = [0, 2, 15] 
-separation_options = [0]      
+separation_options = [0]       
 
-# --- Data Loading ---
+# --- 5. Data Loading Function ---
 @st.cache_data
 def load_data(thickness, polarization, separation, is_symmetric):
-    # --- NEW FILENAME LOGIC ---
+    # --- FILENAME LOGIC ---
     # Base pattern: cluster_pvk_{thickness}_{polarization}_desp_{separation}
     base_name = f"cluster_pvk_{thickness}_{polarization}_desp_{separation}"
     
@@ -44,12 +45,12 @@ def load_data(thickness, polarization, separation, is_symmetric):
     else:
         filename = f"{base_name}.txt"
     
-    # Check if file exists
+    # Check if file exists in the current directory
     if not os.path.exists(filename):
         return None, filename
 
     try:
-        # Define columns (ignoring lambda0_duplicate later)
+        # Define columns
         column_names = [
             'h_fib', 
             'lda0', 
@@ -80,28 +81,28 @@ def load_data(thickness, polarization, separation, is_symmetric):
 if not PLOTLY_AVAILABLE:
     st.stop()
 
-# --- Sidebar: Data Selection ---
+# --- 6. Sidebar: Data Selection ---
 st.sidebar.header("Data Configuration")
 
-# 1. Thickness
+# Thickness
 selected_thickness = st.sidebar.selectbox(
     "Thickness (nm):",
     thickness_options
 )
 
-# 2. Polarization
+# Polarization
 selected_polarization = st.sidebar.radio(
     "Polarization:",
     ('TE', 'TM')
 )
 
-# 3. Separation
+# Separation
 selected_separation = st.sidebar.selectbox(
     "Separation (nm):",
     separation_options
 )
 
-# 4. NEW: Symmetry Selection
+# Symmetry Selection
 symmetry_mode = st.sidebar.radio(
     "Simulation Type:",
     ('Standard', 'Symmetric (_sim)')
@@ -112,6 +113,7 @@ is_symmetric = (symmetry_mode == 'Symmetric (_sim)')
 # Load data based on ALL selected parameters
 df, current_filename = load_data(selected_thickness, selected_polarization, selected_separation, is_symmetric)
 
+# --- 7. Plotting Logic ---
 if df is not None:
     # --- User Controls (Plotting) ---
     st.sidebar.markdown("---")
@@ -253,5 +255,3 @@ else:
     
     *Please ensure the file matches this naming pattern exactly and is in the same folder.*
     """)
-
-
