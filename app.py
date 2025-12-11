@@ -6,15 +6,7 @@ import os
 # --- 1. Page Configuration (MUST be the first st command) ---
 st.set_page_config(layout="wide", page_title="Cluster Optical Viewer")
 
-# --- 2. Debugging: Verify File Location ---
-st.write("📂 **Files found in this folder:**")
-try:
-    # Print files to confirm the code can see them
-    files = os.listdir('.')
-    st.write(files)
-except Exception as e:
-    st.error(f"Error checking files: {e}")
-st.write("---")
+
 
 # --- 3. Imports and Setup for Plotly ---
 try:
@@ -255,3 +247,4 @@ else:
     
     *Please ensure the file matches this naming pattern exactly and is in the same folder.*
     """)
+
