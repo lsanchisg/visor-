@@ -1,3 +1,12 @@
+
+# --- DEBUG: Show me all files in the current folder ---
+import os
+st.write("📂 **Files found in this folder:**")
+st.write(os.listdir('.')) # This prints the list of files to the screen
+st.write("---")
+
+
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -243,3 +252,4 @@ else:
     
     *Please ensure the file matches this naming pattern exactly and is in the same folder.*
     """)
+
