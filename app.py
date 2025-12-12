@@ -21,7 +21,7 @@ st.title("Optical Data Colormap Viewer (Cluster) 🔬")
 
 # --- 4. Configuration: Available Data Parameters ---
 # Update these lists based on your actual data files
-thickness_options = [0, 2, 15] 
+thickness_options = [0, 2] 
 separation_options = [0]       
 
 # --- 5. Data Loading Function ---
@@ -247,4 +247,5 @@ else:
     
     *Please ensure the file matches this naming pattern exactly and is in the same folder.*
     """)
+
 
