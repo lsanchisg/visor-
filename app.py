@@ -153,14 +153,16 @@ with col_main:
                 zmin, zmax = None, None
 
             # --- SESSION STATE & SLIDERS ---
-            w_min, w_max = float(df_pivot.columns.min()), float(df_pivot.columns.max())
-            h_min, h_max = float(df_pivot.index.min()), float(df_pivot.index.max())
+            w_min = float(df_pivot.columns.min())
+            w_max = float(df_pivot.columns.max())
+            h_min = float(df_pivot.index.min())
+            h_max = float(df_pivot.index.max())
 
             # Initialize state variables if not present
             if "current_wave" not in st.session_state:
-                st.session_state.current_wave = (w_min + w_max) / 2
+                st.session_state.current_wave = (w_min + w_max) / 2.0
             if "current_height" not in st.session_state:
-                st.session_state.current_height = (h_min + h_max) / 2
+                st.session_state.current_height = (h_min + h_max) / 2.0
 
             # Define callbacks to update state from sliders
             def update_wave_from_slider():
@@ -172,16 +174,22 @@ with col_main:
             st.sidebar.markdown("---")
             st.sidebar.header("Cross-Section Controls")
             
-            # SLIDERS (Note: key is different from the state variable we track)
+            # SLIDERS with explicit floats to prevent type errors
             st.sidebar.slider(
-                "Wavelength (nm)", w_min, w_max, 
-                value=st.session_state.current_wave, 
+                "Wavelength (nm)", 
+                min_value=w_min, 
+                max_value=w_max, 
+                value=float(st.session_state.current_wave), 
+                step=0.01,
                 key="slider_wave", 
                 on_change=update_wave_from_slider
             )
             st.sidebar.slider(
-                "Fiber Height (nm)", h_min, h_max, 
-                value=st.session_state.current_height, 
+                "Fiber Height (nm)", 
+                min_value=h_min, 
+                max_value=h_max, 
+                value=float(st.session_state.current_height), 
+                step=1.0,
                 key="slider_height", 
                 on_change=update_height_from_slider
             )
@@ -260,8 +268,8 @@ with col_main:
                     abs(click_y - st.session_state.current_height) > 0.0001):
                     
                     # UPDATE STATE AND RERUN IMMEDIATELY
-                    st.session_state.current_wave = click_x
-                    st.session_state.current_height = click_y
+                    st.session_state.current_wave = float(click_x)
+                    st.session_state.current_height = float(click_y)
                     st.rerun()
 
         except Exception as e:
