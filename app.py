@@ -19,7 +19,7 @@ except ImportError:
 st.title("Optical Data Colormap Viewer (Cluster) 🔬")
 
 # --- 3. Configuration Lists ---
-thickness_options = [0, 2, 15] 
+thickness_options = [0, 2] 
 separation_options = [0]       
 
 # --- 4. Helper Functions ---
@@ -335,3 +335,4 @@ with col_side:
 
     if not found_any:
         st.caption("Click a white circle to view fields.")
+
