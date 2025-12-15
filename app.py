@@ -26,29 +26,21 @@ separation_options = [0]
 
 @st.cache_data
 def scan_profile_images(directory="profile_images"):
-    """
-    Scans the directory for PNG files matching the naming convention:
-    {Type}_field_pvk_{thick}_{pol}_desp_{sep}_{h}_{lam}.png
-    """
     if not os.path.exists(directory):
         return pd.DataFrame()
 
     data = []
-    # Regex to parse the filename structure
     pattern = re.compile(r"([EM])_field_pvk_(\d+)_([A-Z]+)_desp_(\d+)_(\d+)_(\d+)\.png")
 
     for filename in os.listdir(directory):
         match = pattern.match(filename)
         if match:
             f_type, thick, pol, sep, h_raw, lam_raw = match.groups()
-            
-            # Convert Lambda code to float (e.g., 52375 -> 523.75)
-            # Adjust the divisor (100.0) if your filename logic differs
             lam_val = float(lam_raw) / 100.0 
             
             entry = {
                 "filename": filename,
-                "type": f_type, # E or M
+                "type": f_type, 
                 "thickness": int(thick),
                 "polarization": pol,
                 "separation": int(sep),
@@ -66,13 +58,8 @@ def scan_profile_images(directory="profile_images"):
 
 @st.cache_data
 def load_data(thickness, polarization, separation, is_symmetric):
-    # Base pattern
     base_name = f"cluster_pvk_{thickness}_{polarization}_desp_{separation}"
-    
-    if is_symmetric:
-        filename = f"{base_name}_sim.txt"
-    else:
-        filename = f"{base_name}.txt"
+    filename = f"{base_name}_sim.txt" if is_symmetric else f"{base_name}.txt"
     
     if not os.path.exists(filename):
         return None, filename
@@ -90,7 +77,6 @@ def load_data(thickness, polarization, separation, is_symmetric):
     except Exception as e:
         return None, filename
 
-# Dialog for Fullscreen Image
 @st.dialog("Field Map Detail", width="large")
 def show_full_image(image_path, title):
     st.subheader(title)
@@ -109,13 +95,10 @@ sel_sep = st.sidebar.selectbox("Separation (nm):", separation_options)
 sym_mode = st.sidebar.radio("Simulation Type:", ('Standard', 'Symmetric (_sim)'))
 is_sym = (sym_mode == 'Symmetric (_sim)')
 
-# Load Main Data
+# Load Data
 df, current_filename = load_data(sel_thick, sel_pol, sel_sep, is_sym)
-
-# Load Image Database
 df_imgs = scan_profile_images("profile_images")
 
-# Filter Image Database for Current Settings
 available_points = pd.DataFrame()
 if not df_imgs.empty:
     mask = (
@@ -127,12 +110,11 @@ if not df_imgs.empty:
     if not filtered_imgs.empty:
         available_points = filtered_imgs[['h_fib', 'lda0']].drop_duplicates()
 
-# --- Layout: Main Content ---
+# --- MAIN LAYOUT ---
 col_main, col_side = st.columns([0.75, 0.25])
 
 with col_main:
     if df is not None:
-        # User Controls
         st.write(f"### 📊 Analysis: `{current_filename}`")
         
         display_opts = {
@@ -141,7 +123,6 @@ with col_main:
             'Absorbance': 'Absorvance'
         }
         
-        # Plot Controls
         c1, c2, c3 = st.columns(3)
         with c1:
             sel_display = st.selectbox("Metric:", list(display_opts.keys()))
@@ -152,17 +133,16 @@ with col_main:
 
         sel_col = display_opts[sel_display]
 
-        # Data Pivoting
         try:
+            # Data Prep
             df['h_fib'] = df['h_fib'].round(5)
             df['lda0'] = df['lda0'].round(5)
             df_pivot = df.pivot(index='h_fib', columns='lda0', values=sel_col)
             df_pivot.sort_index(axis=0, inplace=True)
             df_pivot.sort_index(axis=1, inplace=True)
-            
             z_data = df_pivot.values
             
-            # Log Scale Logic
+            # Log Scale
             if scale_choice == 'Log':
                 z_data_safe = np.where(z_data <= 0, 1e-12, z_data)
                 z_data = np.log10(z_data_safe)
@@ -172,31 +152,51 @@ with col_main:
                 color_label = sel_display
                 zmin, zmax = None, None
 
-            # --- Sliders in Sidebar (Left) ---
+            # --- SESSION STATE & SLIDERS ---
             w_min, w_max = float(df_pivot.columns.min()), float(df_pivot.columns.max())
             h_min, h_max = float(df_pivot.index.min()), float(df_pivot.index.max())
+
+            # Initialize state variables if not present
+            if "current_wave" not in st.session_state:
+                st.session_state.current_wave = (w_min + w_max) / 2
+            if "current_height" not in st.session_state:
+                st.session_state.current_height = (h_min + h_max) / 2
+
+            # Define callbacks to update state from sliders
+            def update_wave_from_slider():
+                st.session_state.current_wave = st.session_state.slider_wave
             
-            # Init Session State
-            if "sel_wave" not in st.session_state: st.session_state.sel_wave = (w_min + w_max)/2
-            if "sel_height" not in st.session_state: st.session_state.sel_height = (h_min + h_max)/2
+            def update_height_from_slider():
+                st.session_state.current_height = st.session_state.slider_height
 
             st.sidebar.markdown("---")
             st.sidebar.header("Cross-Section Controls")
-            st.sidebar.slider("Wavelength (nm)", w_min, w_max, key="sel_wave")
-            st.sidebar.slider("Fiber Height (nm)", h_min, h_max, key="sel_height")
+            
+            # SLIDERS (Note: key is different from the state variable we track)
+            st.sidebar.slider(
+                "Wavelength (nm)", w_min, w_max, 
+                value=st.session_state.current_wave, 
+                key="slider_wave", 
+                on_change=update_wave_from_slider
+            )
+            st.sidebar.slider(
+                "Fiber Height (nm)", h_min, h_max, 
+                value=st.session_state.current_height, 
+                key="slider_height", 
+                on_change=update_height_from_slider
+            )
 
-            # Get Coordinates (from Slider or Click updates)
-            act_wave = st.session_state.sel_wave
-            act_height = st.session_state.sel_height
+            # Use the values from state
+            act_wave = st.session_state.current_wave
+            act_height = st.session_state.current_height
 
-            # Find nearest matrix indices for the cuts
+            # Indices
             w_idx = np.abs(df_pivot.columns - act_wave).argmin()
             h_idx = np.abs(df_pivot.index - act_height).argmin()
-            
             real_wave = df_pivot.columns[w_idx]
             real_height = df_pivot.index[h_idx]
 
-            # --- PLOT CONSTRUCTION ---
+            # --- PLOT ---
             fig_final = make_subplots(
                 rows=2, cols=2,
                 column_widths=[0.8, 0.2],
@@ -204,14 +204,12 @@ with col_main:
                 vertical_spacing=0.05, horizontal_spacing=0.05,
                 shared_xaxes=True, shared_yaxes=True,
                 subplot_titles=(
-                    f'Horizontal Cut (h={real_height:.3f})', 
-                    '', 
-                    f'{sel_pol} Map', 
-                    f'Vertical Cut (λ={real_wave:.3f})'
+                    f'H-Cut (h={real_height:.3f})', '', 
+                    f'{sel_pol} Map', f'V-Cut (λ={real_wave:.3f})'
                 )
             )
 
-            # 1. Main Heatmap
+            # Heatmap
             heatmap = go.Heatmap(
                 z=z_data, x=df_pivot.columns, y=df_pivot.index,
                 colorscale='Jet',
@@ -221,81 +219,74 @@ with col_main:
             )
             fig_final.add_trace(heatmap, row=2, col=1)
 
-            # 2. Image Markers
+            # Markers
             if not available_points.empty:
                 fig_final.add_trace(go.Scatter(
                     x=available_points['lda0'],
                     y=available_points['h_fib'],
                     mode='markers',
                     marker=dict(color='white', size=8, line=dict(width=2, color='black')),
-                    name='Images Available',
+                    name='Images',
                     hovertemplate="<b>Image Available</b><br>λ: %{x}<br>h: %{y}<extra></extra>"
                 ), row=2, col=1)
 
-            # 3. H-Cut
+            # Cuts
             x_cross = z_data[h_idx, :]
-            fig_final.add_trace(go.Scatter(x=df_pivot.columns, y=x_cross, mode='lines', line=dict(color='red'), name="H-Cut"), row=1, col=1)
-            fig_final.add_trace(go.Scatter(x=[real_wave], y=[x_cross[w_idx]], mode='markers', marker=dict(color='blue', size=8), showlegend=False), row=1, col=1)
-
-            # 4. V-Cut
             y_cross = z_data[:, w_idx]
-            fig_final.add_trace(go.Scatter(x=y_cross, y=df_pivot.index, mode='lines', line=dict(color='blue'), name="V-Cut"), row=2, col=2)
+            
+            fig_final.add_trace(go.Scatter(x=df_pivot.columns, y=x_cross, line=dict(color='red'), name="H-Cut"), row=1, col=1)
+            fig_final.add_trace(go.Scatter(x=[real_wave], y=[x_cross[w_idx]], mode='markers', marker=dict(color='blue', size=8), showlegend=False), row=1, col=1)
+            
+            fig_final.add_trace(go.Scatter(x=y_cross, y=df_pivot.index, line=dict(color='blue'), name="V-Cut"), row=2, col=2)
             fig_final.add_trace(go.Scatter(x=[y_cross[h_idx]], y=[real_height], mode='markers', marker=dict(color='red', size=8), showlegend=False), row=2, col=2)
 
-            # 5. Crosshairs
+            # Crosshairs
             fig_final.add_hline(y=real_height, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
             fig_final.add_vline(x=real_wave, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
 
-            fig_final.update_layout(
-                height=700, 
-                clickmode='event+select',
-                template="plotly_white",
-                showlegend=False,
-                dragmode='zoom'
-            )
+            fig_final.update_layout(height=700, clickmode='event+select', template="plotly_white", showlegend=False, dragmode='zoom')
 
-            # --- EVENT HANDLING ---
-            # on_select="rerun" ensures the app updates automatically when clicked
+            # --- RENDER & CAPTURE EVENTS ---
             event = st.plotly_chart(fig_final, use_container_width=True, on_select="rerun", selection_mode="points", key="main_plot")
 
+            # --- HANDLE CLICK ---
             if event and event["selection"]["points"]:
                 point = event["selection"]["points"][0]
                 click_x = point["x"]
                 click_y = point["y"]
                 
-                # Update Session State silently if changed (will affect next logic pass)
-                if click_x != st.session_state.sel_wave or click_y != st.session_state.sel_height:
-                    st.session_state.sel_wave = click_x
-                    st.session_state.sel_height = click_y
-                    # Note: We rely on the natural rerun of Streamlit from on_select, so no st.rerun() here.
+                # Check if values changed significantly
+                if (abs(click_x - st.session_state.current_wave) > 0.0001 or 
+                    abs(click_y - st.session_state.current_height) > 0.0001):
+                    
+                    # UPDATE STATE AND RERUN IMMEDIATELY
+                    st.session_state.current_wave = click_x
+                    st.session_state.current_height = click_y
+                    st.rerun()
 
         except Exception as e:
             st.error(f"Plot Error: {e}")
-
     else:
-        st.warning(f"Data file not found: {current_filename}")
+        st.warning(f"File not found: {current_filename}")
 
-
-# --- Right Sidebar: Image Viewer ---
+# --- SIDEBAR IMAGES ---
 with col_side:
     st.header("🖼️ Field Maps")
     
-    # Use current session state (which holds the clicked or slider value)
-    current_h = st.session_state.get('sel_height', None)
-    current_lam = st.session_state.get('sel_wave', None)
+    # Use values from Session State
+    cur_h = st.session_state.get('current_height', None)
+    cur_w = st.session_state.get('current_wave', None)
     
-    found_image = False
+    found_any = False
 
-    if current_h is not None and not available_points.empty:
-        # Snap to nearest image
-        # Calculate squared distance
-        distances = ((available_points['lda0'] - current_lam)**2 + (available_points['h_fib'] - current_h)**2)
+    if cur_h is not None and not available_points.empty:
+        # Distance Check (Squared Euclidean)
+        distances = ((available_points['lda0'] - cur_w)**2 + (available_points['h_fib'] - cur_h)**2)
         nearest_idx = distances.idxmin()
         min_dist = distances[nearest_idx]
         
-        # Tolerance check (Allows clicking near the dot, not necessarily pixel perfect)
-        # 10.0 units squared allows a reasonable "miss" margin
-        if min_dist < 10.0: 
+        # Tolerance: 10.0 units squared allows easy clicking
+        if min_dist < 10.0:
             img_h = available_points.loc[nearest_idx, 'h_fib']
             img_lam = available_points.loc[nearest_idx, 'lda0']
             
@@ -309,32 +300,30 @@ with col_side:
                 (np.abs(df_imgs['lda0'] - img_lam) < 0.001)
             ]
             
-            e_row = subset[subset['type'] == 'E']
-            m_row = subset[subset['type'] == 'M']
+            e_rows = subset[subset['type'] == 'E']
+            m_rows = subset[subset['type'] == 'M']
             
-            # E-Field
             st.markdown("---")
             st.write("**Electric Field (|E|)**")
-            if not e_row.empty:
-                e_path = e_row.iloc[0]['path']
+            if not e_rows.empty:
+                e_path = e_rows.iloc[0]['path']
                 st.image(e_path, use_container_width=True)
-                if st.button("🔍 Zoom E-Field"):
-                    show_full_image(e_path, f"Electric Field (h={img_h}, λ={img_lam})")
+                if st.button("🔍 Zoom E"):
+                    show_full_image(e_path, f"E-Field (h={img_h}, λ={img_lam})")
             else:
-                st.info("No E-field image.")
+                st.info("No E-field image")
 
-            # H-Field
             st.markdown("---")
             st.write("**Magnetic Field (|H|)**")
-            if not m_row.empty:
-                m_path = m_row.iloc[0]['path']
+            if not m_rows.empty:
+                m_path = m_rows.iloc[0]['path']
                 st.image(m_path, use_container_width=True)
-                if st.button("🔍 Zoom H-Field"):
-                    show_full_image(m_path, f"Magnetic Field (h={img_h}, λ={img_lam})")
+                if st.button("🔍 Zoom H"):
+                    show_full_image(m_path, f"H-Field (h={img_h}, λ={img_lam})")
             else:
-                st.info("No M-field image.")
+                st.info("No M-field image")
             
-            found_image = True
+            found_any = True
 
-    if not found_image:
-        st.caption("Click a white circle on the graph to view field profiles.")
+    if not found_any:
+        st.caption("Click a white circle to view fields.")
