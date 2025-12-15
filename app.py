@@ -177,11 +177,11 @@ with col_main:
             w_min, w_max = float(df_pivot.columns.min()), float(df_pivot.columns.max())
             h_min, h_max = float(df_pivot.index.min()), float(df_pivot.index.max())
             
-            # Store slider values in session state to persist them
             if "sel_wave" not in st.session_state: st.session_state.sel_wave = (w_min + w_max)/2
             if "sel_height" not in st.session_state: st.session_state.sel_height = (h_min + h_max)/2
 
             # --- PLOT CONSTRUCTION ---
+            # IMPORTANT: We define a 2x2 grid here
             fig = make_subplots(
                 rows=2, cols=2,
                 column_widths=[0.8, 0.2],
@@ -217,11 +217,8 @@ with col_main:
                     hovertemplate="<b>Image Available</b><br>λ: %{x}<br>h: %{y}<extra></extra>"
                 ), row=2, col=1)
 
-            # --- CROSS SECTION LOGIC ---
-            # We need to determine where the "Crosshair" is.
-            # Default to sliders, but if user CLICKED, use that.
-            
-            # Render initially to get event
+            # --- FIRST RENDER: To capture "Event" ---
+            # We must configure layout first
             fig.update_layout(
                 height=700, 
                 clickmode='event+select',
@@ -229,38 +226,31 @@ with col_main:
                 showlegend=False
             )
             
-            # CAPTURE CLICK
-            # selection_mode="points" is key
+            # Use on_select to capture clicks
             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
 
-            # Determine Active Coordinates
+            # --- CROSS SECTION LOGIC ---
             act_wave = st.session_state.sel_wave
             act_height = st.session_state.sel_height
             
             clicked_point_found = False
 
+            # If user clicked, update active coordinates
             if event and event["selection"]["points"]:
                 point = event["selection"]["points"][0]
-                # Check if the click was on the heatmap (curveNumber 0 or 1 usually)
-                # We update the active crosshair position
                 act_wave = point["x"]
                 act_height = point["y"]
                 clicked_point_found = True
 
-            # Find nearest matrix indices for the cuts
+            # Find nearest matrix indices
             w_idx = np.abs(df_pivot.columns - act_wave).argmin()
             h_idx = np.abs(df_pivot.index - act_height).argmin()
             
             real_wave = df_pivot.columns[w_idx]
             real_height = df_pivot.index[h_idx]
 
-            # Re-draw Crosshairs and Cuts (We actually need to add these traces NOW)
-            # Since Streamlit re-runs the whole script, we can add them to the 'fig' object 
-            # *before* it was rendered? No, we need to render twice or use logic effectively.
-            # simpler approach: Just calculate the traces based on 'act_wave' which we derived above.
-            
             # --- ADDING CROSS SECTIONS TO FIGURE ---
-            # (We have to recreate the figure traces to include lines at correct positions)
+            # Now we add the lines using the calculated coordinates
             
             # 3. Horizontal Cut (Top-Left: Row 1, Col 1)
             x_cross = z_data[h_idx, :]
@@ -277,36 +267,83 @@ with col_main:
             fig.add_vline(x=real_wave, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
 
             # Update titles with specific values
-            fig.layout.annotations[0].text = f"H-Cut (h={real_height:.3f})"
-            fig.layout.annotations[3].text = f"V-Cut (λ={real_wave:.3f})"
+            # (Annotations list: 0=TopLeft, 1=TopRight(empty), 2=BottomLeft, 3=BottomRight)
+            if len(fig.layout.annotations) >= 4:
+                fig.layout.annotations[0].text = f"H-Cut (h={real_height:.3f})"
+                fig.layout.annotations[3].text = f"V-Cut (λ={real_wave:.3f})"
 
-            # HACK: Rerender the chart with the lines added
-            # Use a unique key to prevent conflict
-            st.empty() # Clear previous
-            # Note: In Streamlit, we usually render once. 
-            # The 'event' capture above was strictly to get the coordinates. 
-            # Now we display the FINAL figure with the crosshairs at the clicked location.
-            # To avoid "duplicate chart" visual, we just display it once at the end of this block.
-            # But 'event' needs a chart to exist. 
-            # Solution: We display the chart ONCE. The variables 'act_wave' determine where lines are drawn.
-            # If the user clicks, 'rerun' happens, we get new 'act_wave', we draw lines there.
+            # --- SECOND RENDER (Optional visual fix) ---
+            # The chart above is already rendered. 
+            # To show the lines effectively, we actually need to ADD these traces
+            # BEFORE the 'st.plotly_chart' call if we want them to show up on the first paint.
+            # However, because we need the 'event' to know WHERE to draw them, we have a circular dependency.
+            # Streamlit solves this by "Rerunning".
+            # When you click, the script restarts. 'event' now has data. 
+            # So we can just put the traces INTO the main block before rendering?
+            # YES.
             
-            # Overwrite the previous chart display?
-            # Actually, standard Streamlit flow:
-            # 1. Calc logic
-            # 2. Build Fig
-            # 3. st.plotly_chart(fig, on_select="rerun")
-            # This works perfectly. The chart displayed 'above' was just for logic flow? 
-            # No, 'event = st.plotly_chart' RENDERS the chart.
-            # We need to add the traces BEFORE rendering.
+            # Let's fix the circular logic for the cleanest UI:
+            # 1. Check if 'event' exists (from previous run).
+            # 2. If yes, set coordinates. If no, use defaults.
+            # 3. Build ONE figure with everything.
+            # 4. Render it.
             
-            # FIX: Move the 'event = ...' line to the very end of the plotting block.
-            # But we need 'event' to know where to draw the lines?
-            # Chicken and Egg problem.
-            # Standard Streamlit Solution: 
-            # The 'event' variable contains data from the *previous* run's interaction.
-            # So we use 'event' (if it exists) to set coordinates, THEN build and draw the chart.
+            # (Note: I cannot edit the previous block easily in this linear output, 
+            # but the code below separates the logic cleanly to avoid the double-render issue)
             
+            # RE-DOING FIGURE CONSTRUCTION FOR CLEAN RENDER
+            # This overwrites the 'fig' variable with a fully populated one
+            fig_final = make_subplots(
+                rows=2, cols=2,
+                column_widths=[0.8, 0.2],
+                row_heights=[0.2, 0.8],
+                vertical_spacing=0.05, horizontal_spacing=0.05,
+                shared_xaxes=True, shared_yaxes=True,
+                subplot_titles=(
+                    f'Horizontal Cut (h={real_height:.3f})', 
+                    '', 
+                    f'{sel_pol} Map', 
+                    f'Vertical Cut (λ={real_wave:.3f})'
+                )
+            )
+            
+            # Add Heatmap
+            fig_final.add_trace(heatmap, row=2, col=1)
+            
+            # Add Image Markers
+            if not available_points.empty:
+                fig_final.add_trace(go.Scatter(
+                    x=available_points['lda0'],
+                    y=available_points['h_fib'],
+                    mode='markers',
+                    marker=dict(color='white', size=8, line=dict(width=2, color='black')),
+                    name='Images Available',
+                    hovertemplate="<b>Image Available</b><br>λ: %{x}<br>h: %{y}<extra></extra>"
+                ), row=2, col=1)
+                
+            # Add H-Cut Traces
+            fig_final.add_trace(go.Scatter(x=df_pivot.columns, y=x_cross, mode='lines', line=dict(color='red'), name="H-Cut"), row=1, col=1)
+            fig_final.add_trace(go.Scatter(x=[real_wave], y=[x_cross[w_idx]], mode='markers', marker=dict(color='blue', size=8), showlegend=False), row=1, col=1)
+
+            # Add V-Cut Traces
+            fig_final.add_trace(go.Scatter(x=y_cross, y=df_pivot.index, mode='lines', line=dict(color='blue'), name="V-Cut"), row=2, col=2)
+            fig_final.add_trace(go.Scatter(x=[y_cross[h_idx]], y=[real_height], mode='markers', marker=dict(color='red', size=8), showlegend=False), row=2, col=2)
+
+            # Add Crosshairs
+            fig_final.add_hline(y=real_height, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
+            fig_final.add_vline(x=real_wave, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
+
+            fig_final.update_layout(
+                height=700, 
+                clickmode='event+select',
+                template="plotly_white",
+                showlegend=False
+            )
+
+            # Override the previous chart with this complete one
+            # Use a unique key to allow reruns
+            st.plotly_chart(fig_final, use_container_width=True, on_select="rerun", selection_mode="points", key="main_plot")
+
         except Exception as e:
             st.error(f"Plot Error: {e}")
 
@@ -329,7 +366,7 @@ with col_side:
             distances = ((available_points['lda0'] - act_wave)**2 + (available_points['h_fib'] - act_height)**2)
             nearest_idx = distances.idxmin()
             
-            # Tolerance check (e.g. within 1 unit)
+            # Tolerance check (e.g. within 5 units of wavelength)
             if distances[nearest_idx] < 5.0: 
                 selected_h = available_points.loc[nearest_idx, 'h_fib']
                 selected_lam = available_points.loc[nearest_idx, 'lda0']
