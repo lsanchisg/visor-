@@ -172,31 +172,24 @@ with col_main:
                 color_label = sel_display
                 zmin, zmax = None, None
 
-            # --- Sliders (RESTORED) ---
-            # Get data ranges
+            # --- Sliders in Sidebar (Left) ---
             w_min, w_max = float(df_pivot.columns.min()), float(df_pivot.columns.max())
             h_min, h_max = float(df_pivot.index.min()), float(df_pivot.index.max())
             
-            # Initialize Session State for Coordinates if not present
-            if "sel_wave" not in st.session_state: 
-                st.session_state.sel_wave = (w_min + w_max)/2
-            if "sel_height" not in st.session_state: 
-                st.session_state.sel_height = (h_min + h_max)/2
+            # Init Session State
+            if "sel_wave" not in st.session_state: st.session_state.sel_wave = (w_min + w_max)/2
+            if "sel_height" not in st.session_state: st.session_state.sel_height = (h_min + h_max)/2
 
-            # Sidebar Controls for Cross-Section
             st.sidebar.markdown("---")
             st.sidebar.header("Cross-Section Controls")
-            
-            # We use `st.sidebar.slider` but we manually update state to sync with clicks
-            # Using 'key' automatically syncs the slider with session_state
             st.sidebar.slider("Wavelength (nm)", w_min, w_max, key="sel_wave")
             st.sidebar.slider("Fiber Height (nm)", h_min, h_max, key="sel_height")
 
-            # Get current active values (from slider OR click)
+            # Get Coordinates (from Slider or Click updates)
             act_wave = st.session_state.sel_wave
             act_height = st.session_state.sel_height
 
-            # Find nearest matrix indices
+            # Find nearest matrix indices for the cuts
             w_idx = np.abs(df_pivot.columns - act_wave).argmin()
             h_idx = np.abs(df_pivot.index - act_height).argmin()
             
@@ -239,23 +232,20 @@ with col_main:
                     hovertemplate="<b>Image Available</b><br>λ: %{x}<br>h: %{y}<extra></extra>"
                 ), row=2, col=1)
 
-            # 3. Horizontal Cut (Top)
+            # 3. H-Cut
             x_cross = z_data[h_idx, :]
             fig_final.add_trace(go.Scatter(x=df_pivot.columns, y=x_cross, mode='lines', line=dict(color='red'), name="H-Cut"), row=1, col=1)
-            # Dot on H-Cut
             fig_final.add_trace(go.Scatter(x=[real_wave], y=[x_cross[w_idx]], mode='markers', marker=dict(color='blue', size=8), showlegend=False), row=1, col=1)
 
-            # 4. Vertical Cut (Right)
+            # 4. V-Cut
             y_cross = z_data[:, w_idx]
             fig_final.add_trace(go.Scatter(x=y_cross, y=df_pivot.index, mode='lines', line=dict(color='blue'), name="V-Cut"), row=2, col=2)
-            # Dot on V-Cut
             fig_final.add_trace(go.Scatter(x=[y_cross[h_idx]], y=[real_height], mode='markers', marker=dict(color='red', size=8), showlegend=False), row=2, col=2)
 
-            # 5. Crosshairs on Heatmap
+            # 5. Crosshairs
             fig_final.add_hline(y=real_height, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
             fig_final.add_vline(x=real_wave, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
 
-            # Layout Updates
             fig_final.update_layout(
                 height=700, 
                 clickmode='event+select',
@@ -264,22 +254,20 @@ with col_main:
                 dragmode='zoom'
             )
 
-            # --- SINGLE RENDER ---
-            # We use 'key' to identify this specific chart event
+            # --- EVENT HANDLING ---
+            # on_select="rerun" ensures the app updates automatically when clicked
             event = st.plotly_chart(fig_final, use_container_width=True, on_select="rerun", selection_mode="points", key="main_plot")
 
-            # --- EVENT HANDLING (The Magic) ---
-            # If user clicked, update session state and RERUN immediately so lines jump to new spot
             if event and event["selection"]["points"]:
                 point = event["selection"]["points"][0]
                 click_x = point["x"]
                 click_y = point["y"]
                 
-                # Only rerun if the value actually changed (prevents infinite loops)
+                # Update Session State silently if changed (will affect next logic pass)
                 if click_x != st.session_state.sel_wave or click_y != st.session_state.sel_height:
                     st.session_state.sel_wave = click_x
                     st.session_state.sel_height = click_y
-                    st.rerun()
+                    # Note: We rely on the natural rerun of Streamlit from on_select, so no st.rerun() here.
 
         except Exception as e:
             st.error(f"Plot Error: {e}")
@@ -292,26 +280,27 @@ with col_main:
 with col_side:
     st.header("🖼️ Field Maps")
     
-    # We use the current Session State values (which are synced with sliders/clicks)
+    # Use current session state (which holds the clicked or slider value)
     current_h = st.session_state.get('sel_height', None)
     current_lam = st.session_state.get('sel_wave', None)
     
     found_image = False
 
     if current_h is not None and not available_points.empty:
-        # Check distance to nearest image
+        # Snap to nearest image
+        # Calculate squared distance
         distances = ((available_points['lda0'] - current_lam)**2 + (available_points['h_fib'] - current_h)**2)
         nearest_idx = distances.idxmin()
+        min_dist = distances[nearest_idx]
         
-        # If we are close enough (e.g., clicked exactly on a white dot)
-        # Tolerance: 5.0 units squared (adjust as needed for "snap" feel)
-        if distances[nearest_idx] < 2.0: 
+        # Tolerance check (Allows clicking near the dot, not necessarily pixel perfect)
+        # 10.0 units squared allows a reasonable "miss" margin
+        if min_dist < 10.0: 
             img_h = available_points.loc[nearest_idx, 'h_fib']
             img_lam = available_points.loc[nearest_idx, 'lda0']
             
             st.success(f"Selected:\nλ={img_lam} nm\nh={img_h} nm")
             
-            # Retrieve Image Paths
             subset = df_imgs[
                 (df_imgs['thickness'] == sel_thick) &
                 (df_imgs['polarization'] == sel_pol) &
