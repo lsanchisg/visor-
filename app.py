@@ -29,7 +29,6 @@ def scan_profile_images(directory="profile_images"):
     """
     Scans the directory for PNG files matching the naming convention:
     {Type}_field_pvk_{thick}_{pol}_desp_{sep}_{h}_{lam}.png
-    Example: E_field_pvk_0_TE_desp_0_1100_52375.png
     """
     if not os.path.exists(directory):
         return pd.DataFrame()
@@ -173,74 +172,29 @@ with col_main:
                 color_label = sel_display
                 zmin, zmax = None, None
 
-            # --- Slider Defaults ---
+            # --- Sliders (RESTORED) ---
+            # Get data ranges
             w_min, w_max = float(df_pivot.columns.min()), float(df_pivot.columns.max())
             h_min, h_max = float(df_pivot.index.min()), float(df_pivot.index.max())
             
-            if "sel_wave" not in st.session_state: st.session_state.sel_wave = (w_min + w_max)/2
-            if "sel_height" not in st.session_state: st.session_state.sel_height = (h_min + h_max)/2
+            # Initialize Session State for Coordinates if not present
+            if "sel_wave" not in st.session_state: 
+                st.session_state.sel_wave = (w_min + w_max)/2
+            if "sel_height" not in st.session_state: 
+                st.session_state.sel_height = (h_min + h_max)/2
 
-            # --- PLOT CONSTRUCTION ---
-            # IMPORTANT: We define a 2x2 grid here
-            fig = make_subplots(
-                rows=2, cols=2,
-                column_widths=[0.8, 0.2],
-                row_heights=[0.2, 0.8],
-                vertical_spacing=0.05, horizontal_spacing=0.05,
-                shared_xaxes=True, shared_yaxes=True,
-                subplot_titles=(
-                    f'Horizontal Cut', 
-                    '', 
-                    f'{sel_pol} Map', 
-                    f'Vertical Cut'
-                )
-            )
-
-            # 1. Main Heatmap (Bottom-Left: Row 2, Col 1)
-            heatmap = go.Heatmap(
-                z=z_data, x=df_pivot.columns, y=df_pivot.index,
-                colorscale='Jet',
-                colorbar=dict(title=color_label, len=0.75, y=0.15, yanchor='bottom'),
-                zmin=zmin, zmax=zmax,
-                hovertemplate="λ: %{x}<br>h: %{y}<br>Val: %{z:.4e}<extra></extra>"
-            )
-            fig.add_trace(heatmap, row=2, col=1)
-
-            # 2. Markers for Available Images (Bottom-Left: Row 2, Col 1)
-            if not available_points.empty:
-                fig.add_trace(go.Scatter(
-                    x=available_points['lda0'],
-                    y=available_points['h_fib'],
-                    mode='markers',
-                    marker=dict(color='white', size=8, line=dict(width=2, color='black')),
-                    name='Images Available',
-                    hovertemplate="<b>Image Available</b><br>λ: %{x}<br>h: %{y}<extra></extra>"
-                ), row=2, col=1)
-
-            # --- FIRST RENDER: To capture "Event" ---
-            # We must configure layout first
-            fig.update_layout(
-                height=700, 
-                clickmode='event+select',
-                template="plotly_white",
-                showlegend=False
-            )
+            # Sidebar Controls for Cross-Section
+            st.sidebar.markdown("---")
+            st.sidebar.header("Cross-Section Controls")
             
-            # Use on_select to capture clicks
-            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+            # We use `st.sidebar.slider` but we manually update state to sync with clicks
+            # Using 'key' automatically syncs the slider with session_state
+            st.sidebar.slider("Wavelength (nm)", w_min, w_max, key="sel_wave")
+            st.sidebar.slider("Fiber Height (nm)", h_min, h_max, key="sel_height")
 
-            # --- CROSS SECTION LOGIC ---
+            # Get current active values (from slider OR click)
             act_wave = st.session_state.sel_wave
             act_height = st.session_state.sel_height
-            
-            clicked_point_found = False
-
-            # If user clicked, update active coordinates
-            if event and event["selection"]["points"]:
-                point = event["selection"]["points"][0]
-                act_wave = point["x"]
-                act_height = point["y"]
-                clicked_point_found = True
 
             # Find nearest matrix indices
             w_idx = np.abs(df_pivot.columns - act_wave).argmin()
@@ -249,50 +203,7 @@ with col_main:
             real_wave = df_pivot.columns[w_idx]
             real_height = df_pivot.index[h_idx]
 
-            # --- ADDING CROSS SECTIONS TO FIGURE ---
-            # Now we add the lines using the calculated coordinates
-            
-            # 3. Horizontal Cut (Top-Left: Row 1, Col 1)
-            x_cross = z_data[h_idx, :]
-            fig.add_trace(go.Scatter(x=df_pivot.columns, y=x_cross, mode='lines', line=dict(color='red'), name="H-Cut"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=[real_wave], y=[x_cross[w_idx]], mode='markers', marker=dict(color='blue', size=8)), row=1, col=1)
-
-            # 4. Vertical Cut (Bottom-Right: Row 2, Col 2)
-            y_cross = z_data[:, w_idx]
-            fig.add_trace(go.Scatter(x=y_cross, y=df_pivot.index, mode='lines', line=dict(color='blue'), name="V-Cut"), row=2, col=2)
-            fig.add_trace(go.Scatter(x=[y_cross[h_idx]], y=[real_height], mode='markers', marker=dict(color='red', size=8)), row=2, col=2)
-
-            # 5. Add Crosshair Lines to Heatmap
-            fig.add_hline(y=real_height, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
-            fig.add_vline(x=real_wave, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
-
-            # Update titles with specific values
-            # (Annotations list: 0=TopLeft, 1=TopRight(empty), 2=BottomLeft, 3=BottomRight)
-            if len(fig.layout.annotations) >= 4:
-                fig.layout.annotations[0].text = f"H-Cut (h={real_height:.3f})"
-                fig.layout.annotations[3].text = f"V-Cut (λ={real_wave:.3f})"
-
-            # --- SECOND RENDER (Optional visual fix) ---
-            # The chart above is already rendered. 
-            # To show the lines effectively, we actually need to ADD these traces
-            # BEFORE the 'st.plotly_chart' call if we want them to show up on the first paint.
-            # However, because we need the 'event' to know WHERE to draw them, we have a circular dependency.
-            # Streamlit solves this by "Rerunning".
-            # When you click, the script restarts. 'event' now has data. 
-            # So we can just put the traces INTO the main block before rendering?
-            # YES.
-            
-            # Let's fix the circular logic for the cleanest UI:
-            # 1. Check if 'event' exists (from previous run).
-            # 2. If yes, set coordinates. If no, use defaults.
-            # 3. Build ONE figure with everything.
-            # 4. Render it.
-            
-            # (Note: I cannot edit the previous block easily in this linear output, 
-            # but the code below separates the logic cleanly to avoid the double-render issue)
-            
-            # RE-DOING FIGURE CONSTRUCTION FOR CLEAN RENDER
-            # This overwrites the 'fig' variable with a fully populated one
+            # --- PLOT CONSTRUCTION ---
             fig_final = make_subplots(
                 rows=2, cols=2,
                 column_widths=[0.8, 0.2],
@@ -306,11 +217,18 @@ with col_main:
                     f'Vertical Cut (λ={real_wave:.3f})'
                 )
             )
-            
-            # Add Heatmap
+
+            # 1. Main Heatmap
+            heatmap = go.Heatmap(
+                z=z_data, x=df_pivot.columns, y=df_pivot.index,
+                colorscale='Jet',
+                colorbar=dict(title=color_label, len=0.75, y=0.15, yanchor='bottom'),
+                zmin=zmin, zmax=zmax,
+                hovertemplate="λ: %{x}<br>h: %{y}<br>Val: %{z:.4e}<extra></extra>"
+            )
             fig_final.add_trace(heatmap, row=2, col=1)
-            
-            # Add Image Markers
+
+            # 2. Image Markers
             if not available_points.empty:
                 fig_final.add_trace(go.Scatter(
                     x=available_points['lda0'],
@@ -320,29 +238,48 @@ with col_main:
                     name='Images Available',
                     hovertemplate="<b>Image Available</b><br>λ: %{x}<br>h: %{y}<extra></extra>"
                 ), row=2, col=1)
-                
-            # Add H-Cut Traces
+
+            # 3. Horizontal Cut (Top)
+            x_cross = z_data[h_idx, :]
             fig_final.add_trace(go.Scatter(x=df_pivot.columns, y=x_cross, mode='lines', line=dict(color='red'), name="H-Cut"), row=1, col=1)
+            # Dot on H-Cut
             fig_final.add_trace(go.Scatter(x=[real_wave], y=[x_cross[w_idx]], mode='markers', marker=dict(color='blue', size=8), showlegend=False), row=1, col=1)
 
-            # Add V-Cut Traces
+            # 4. Vertical Cut (Right)
+            y_cross = z_data[:, w_idx]
             fig_final.add_trace(go.Scatter(x=y_cross, y=df_pivot.index, mode='lines', line=dict(color='blue'), name="V-Cut"), row=2, col=2)
+            # Dot on V-Cut
             fig_final.add_trace(go.Scatter(x=[y_cross[h_idx]], y=[real_height], mode='markers', marker=dict(color='red', size=8), showlegend=False), row=2, col=2)
 
-            # Add Crosshairs
+            # 5. Crosshairs on Heatmap
             fig_final.add_hline(y=real_height, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
             fig_final.add_vline(x=real_wave, line=dict(color='white', width=1, dash='dash'), row=2, col=1)
 
+            # Layout Updates
             fig_final.update_layout(
                 height=700, 
                 clickmode='event+select',
                 template="plotly_white",
-                showlegend=False
+                showlegend=False,
+                dragmode='zoom'
             )
 
-            # Override the previous chart with this complete one
-            # Use a unique key to allow reruns
-            st.plotly_chart(fig_final, use_container_width=True, on_select="rerun", selection_mode="points", key="main_plot")
+            # --- SINGLE RENDER ---
+            # We use 'key' to identify this specific chart event
+            event = st.plotly_chart(fig_final, use_container_width=True, on_select="rerun", selection_mode="points", key="main_plot")
+
+            # --- EVENT HANDLING (The Magic) ---
+            # If user clicked, update session state and RERUN immediately so lines jump to new spot
+            if event and event["selection"]["points"]:
+                point = event["selection"]["points"][0]
+                click_x = point["x"]
+                click_y = point["y"]
+                
+                # Only rerun if the value actually changed (prevents infinite loops)
+                if click_x != st.session_state.sel_wave or click_y != st.session_state.sel_height:
+                    st.session_state.sel_wave = click_x
+                    st.session_state.sel_height = click_y
+                    st.rerun()
 
         except Exception as e:
             st.error(f"Plot Error: {e}")
@@ -355,58 +292,60 @@ with col_main:
 with col_side:
     st.header("🖼️ Field Maps")
     
-    selected_h = None
-    selected_lam = None
+    # We use the current Session State values (which are synced with sliders/clicks)
+    current_h = st.session_state.get('sel_height', None)
+    current_lam = st.session_state.get('sel_wave', None)
+    
+    found_image = False
 
-    # Logic: If we found a click in the event (from the previous render loop), use it
-    if clicked_point_found:
-        # Snap to nearest image point
-        if not available_points.empty:
-            # Simple distance check
-            distances = ((available_points['lda0'] - act_wave)**2 + (available_points['h_fib'] - act_height)**2)
-            nearest_idx = distances.idxmin()
+    if current_h is not None and not available_points.empty:
+        # Check distance to nearest image
+        distances = ((available_points['lda0'] - current_lam)**2 + (available_points['h_fib'] - current_h)**2)
+        nearest_idx = distances.idxmin()
+        
+        # If we are close enough (e.g., clicked exactly on a white dot)
+        # Tolerance: 5.0 units squared (adjust as needed for "snap" feel)
+        if distances[nearest_idx] < 2.0: 
+            img_h = available_points.loc[nearest_idx, 'h_fib']
+            img_lam = available_points.loc[nearest_idx, 'lda0']
             
-            # Tolerance check (e.g. within 5 units of wavelength)
-            if distances[nearest_idx] < 5.0: 
-                selected_h = available_points.loc[nearest_idx, 'h_fib']
-                selected_lam = available_points.loc[nearest_idx, 'lda0']
+            st.success(f"Selected:\nλ={img_lam} nm\nh={img_h} nm")
+            
+            # Retrieve Image Paths
+            subset = df_imgs[
+                (df_imgs['thickness'] == sel_thick) &
+                (df_imgs['polarization'] == sel_pol) &
+                (df_imgs['separation'] == sel_sep) &
+                (df_imgs['h_fib'] == img_h) &
+                (np.abs(df_imgs['lda0'] - img_lam) < 0.001)
+            ]
+            
+            e_row = subset[subset['type'] == 'E']
+            m_row = subset[subset['type'] == 'M']
+            
+            # E-Field
+            st.markdown("---")
+            st.write("**Electric Field (|E|)**")
+            if not e_row.empty:
+                e_path = e_row.iloc[0]['path']
+                st.image(e_path, use_container_width=True)
+                if st.button("🔍 Zoom E-Field"):
+                    show_full_image(e_path, f"Electric Field (h={img_h}, λ={img_lam})")
+            else:
+                st.info("No E-field image.")
 
-    # Display Images
-    if selected_h is not None:
-        st.success(f"Selected:\nλ={selected_lam} nm\nh={selected_h} nm")
-        
-        subset = df_imgs[
-            (df_imgs['thickness'] == sel_thick) &
-            (df_imgs['polarization'] == sel_pol) &
-            (df_imgs['separation'] == sel_sep) &
-            (df_imgs['h_fib'] == selected_h) &
-            (np.abs(df_imgs['lda0'] - selected_lam) < 0.001)
-        ]
-        
-        e_row = subset[subset['type'] == 'E']
-        m_row = subset[subset['type'] == 'M']
-        
-        # E-Field
-        st.markdown("---")
-        st.write("**Electric Field (|E|)**")
-        if not e_row.empty:
-            e_path = e_row.iloc[0]['path']
-            st.image(e_path, use_container_width=True)
-            if st.button("🔍 Zoom E-Field"):
-                show_full_image(e_path, f"Electric Field (h={selected_h}, λ={selected_lam})")
-        else:
-            st.info("No E-field image.")
+            # H-Field
+            st.markdown("---")
+            st.write("**Magnetic Field (|H|)**")
+            if not m_row.empty:
+                m_path = m_row.iloc[0]['path']
+                st.image(m_path, use_container_width=True)
+                if st.button("🔍 Zoom H-Field"):
+                    show_full_image(m_path, f"Magnetic Field (h={img_h}, λ={img_lam})")
+            else:
+                st.info("No M-field image.")
+            
+            found_image = True
 
-        # H-Field
-        st.markdown("---")
-        st.write("**Magnetic Field (|H|)**")
-        if not m_row.empty:
-            m_path = m_row.iloc[0]['path']
-            st.image(m_path, use_container_width=True)
-            if st.button("🔍 Zoom H-Field"):
-                show_full_image(m_path, f"Magnetic Field (h={selected_h}, λ={selected_lam})")
-        else:
-            st.info("No M-field image.")
-
-    else:
+    if not found_image:
         st.caption("Click a white circle on the graph to view field profiles.")
