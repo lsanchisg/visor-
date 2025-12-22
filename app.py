@@ -19,8 +19,9 @@ except ImportError:
 st.title("Optical Data Colormap Viewer (Cluster) 🔬")
 
 # --- 3. Configuration Lists ---
-thickness_options = [0, 2] 
-separation_options = [0]       
+thickness_options = [0, 2, 15] 
+# Updated to match your new file structure (desp_0, desp_1, desp_2)
+separation_options = [0, 1, 2]       
 
 # --- 4. Helper Functions ---
 
@@ -30,6 +31,7 @@ def scan_profile_images(directory="profile_images"):
         return pd.DataFrame()
 
     data = []
+    # Regex to parse filenames like: E_field_pvk_0_TE_desp_0_1100_52375.png
     pattern = re.compile(r"([EM])_field_pvk_(\d+)_([A-Z]+)_desp_(\d+)_(\d+)_(\d+)\.png")
 
     for filename in os.listdir(directory):
@@ -58,6 +60,7 @@ def scan_profile_images(directory="profile_images"):
 
 @st.cache_data
 def load_data(thickness, polarization, separation, is_symmetric):
+    # Dynamically build filename based on separation (0, 1, 2)
     base_name = f"cluster_pvk_{thickness}_{polarization}_desp_{separation}"
     filename = f"{base_name}_sim.txt" if is_symmetric else f"{base_name}.txt"
     
@@ -89,9 +92,17 @@ if not PLOTLY_AVAILABLE:
 
 # Layout: Sidebar
 st.sidebar.header("Data Configuration")
+
+# Thickness Selector
 sel_thick = st.sidebar.selectbox("Thickness (nm):", thickness_options)
+
+# Polarization Selector
 sel_pol = st.sidebar.radio("Polarization:", ('TE', 'TM'))
-sel_sep = st.sidebar.selectbox("Separation (nm):", separation_options)
+
+# Gaussians Separation Selector (Updated)
+sel_sep = st.sidebar.selectbox("Gaussians separation:", separation_options)
+
+# Simulation Type
 sym_mode = st.sidebar.radio("Simulation Type:", ('Standard', 'Symmetric (_sim)'))
 is_sym = (sym_mode == 'Symmetric (_sim)')
 
@@ -101,6 +112,7 @@ df_imgs = scan_profile_images("profile_images")
 
 available_points = pd.DataFrame()
 if not df_imgs.empty:
+    # Filter images to match current selections
     mask = (
         (df_imgs['thickness'] == sel_thick) & 
         (df_imgs['polarization'] == sel_pol) & 
@@ -142,7 +154,7 @@ with col_main:
             df_pivot.sort_index(axis=1, inplace=True)
             z_data = df_pivot.values
             
-            # Log Scale
+            # Log Scale Logic
             if scale_choice == 'Log':
                 z_data_safe = np.where(z_data <= 0, 1e-12, z_data)
                 z_data = np.log10(z_data_safe)
@@ -335,4 +347,3 @@ with col_side:
 
     if not found_any:
         st.caption("Click a white circle to view fields.")
-
