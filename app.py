@@ -20,7 +20,7 @@ st.title("Optical Data Colormap Viewer (Cluster) 🔬")
 
 # --- 3. Configuration Lists ---
 thickness_options = [0, 2, 15] 
-# Updated to match your new file structure (desp_0, desp_1, desp_2)
+# Updated to match your file structure (desp_0, desp_1, desp_2)
 separation_options = [0, 1, 2]       
 
 # --- 4. Helper Functions ---
@@ -60,10 +60,12 @@ def scan_profile_images(directory="profile_images"):
 
 @st.cache_data
 def load_data(thickness, polarization, separation, is_symmetric):
-    # Dynamically build filename based on separation (0, 1, 2)
+    # Dynamically build filename based on available .txt files
+    # Format: cluster_pvk_{thickness}_{polarization}_desp_{separation}.txt
     base_name = f"cluster_pvk_{thickness}_{polarization}_desp_{separation}"
     filename = f"{base_name}_sim.txt" if is_symmetric else f"{base_name}.txt"
     
+    # Graceful exit if file doesn't exist (prevents the "Errno 2" crash)
     if not os.path.exists(filename):
         return None, filename
 
@@ -72,6 +74,7 @@ def load_data(thickness, polarization, separation, is_symmetric):
             'h_fib', 'lda0', 'lambda0_duplicate', 
             'Reflectance_port_1', 'Transmittance_port_2', 'Absorvance'
         ]
+        # Read the space-separated text file
         df = pd.read_csv(
             filename, sep=r'\s+', comment='%', header=None, names=column_names
         )
@@ -99,7 +102,7 @@ sel_thick = st.sidebar.selectbox("Thickness (nm):", thickness_options)
 # Polarization Selector
 sel_pol = st.sidebar.radio("Polarization:", ('TE', 'TM'))
 
-# Gaussians Separation Selector (Updated)
+# Gaussians Separation Selector
 sel_sep = st.sidebar.selectbox("Gaussians separation:", separation_options)
 
 # Simulation Type
@@ -288,6 +291,7 @@ with col_main:
             st.error(f"Plot Error: {e}")
     else:
         st.warning(f"File not found: {current_filename}")
+        st.info("Check that your `.txt` files are uploaded and match the pattern: `cluster_pvk_{thickness}_{polarization}_desp_{separation}.txt`")
 
 # --- SIDEBAR IMAGES ---
 with col_side:
